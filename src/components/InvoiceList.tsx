@@ -5,7 +5,7 @@
 
 import React, { useState } from "react";
 import { Invoice, InvoiceStatus } from "../types";
-import { formatCurrency } from "../utils";
+import { formatCurrency, formatDate } from "../utils";
 import { PlusCircle, Search, Edit3, Trash2, Eye, Filter } from "lucide-react";
 
 interface InvoiceListProps {
@@ -94,7 +94,7 @@ export const InvoiceList: React.FC<InvoiceListProps> = ({
           <div className="divide-y divide-slate-100">
             {filteredInvoices.map((inv) => {
               const subtotal = inv.items.reduce((sum, item) => sum + (item.qty * item.price), 0);
-              const tax = subtotal * (inv.taxRate / 100);
+              const tax = inv.hideTax ? 0 : subtotal * (inv.taxRate / 100);
               const total = subtotal + tax;
 
               return (
@@ -143,7 +143,7 @@ export const InvoiceList: React.FC<InvoiceListProps> = ({
                         {formatCurrency(total, currency)}
                       </span>
                       <span className="text-[10px] text-slate-400 block sm:text-right">
-                        Issued: {inv.issuedDate}
+                        Issued: {formatDate(inv.issuedDate)}
                       </span>
                     </div>
 

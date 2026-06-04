@@ -251,6 +251,7 @@ export default function App() {
           <InvoiceDetail
             invoice={selectedInvoice}
             currency={appSettings.currency}
+            logo={appSettings.logo}
             onBack={() => setSelectedInvoice(null)}
             onUpdateInvoice={handleUpdateInvoice}
           />
@@ -345,6 +346,8 @@ export default function App() {
               <input
                 type="text"
                 autoComplete="username"
+                placeholder="Enter username"
+                title="Username"
                 className="w-full border border-slate-200 rounded-lg p-3 text-sm bg-slate-50 focus:bg-white focus:ring-2 focus:ring-blue-100 focus:border-blue-500 outline-none transition"
                 value={loginUser}
                 onChange={(e) => {
@@ -361,6 +364,8 @@ export default function App() {
               <input
                 type="password"
                 autoComplete="current-password"
+                placeholder="Enter password"
+                title="Password"
                 className="w-full border border-slate-200 rounded-lg p-3 text-sm bg-slate-50 focus:bg-white focus:ring-2 focus:ring-blue-100 focus:border-blue-500 outline-none transition"
                 value={loginPassword}
                 onChange={(e) => {
@@ -393,7 +398,7 @@ export default function App() {
       {/* Top Navigation Bar Header */}
       <header className="w-full sticky top-0 z-40 bg-white border-b border-slate-200 flex justify-between items-center px-4 h-14 no-print shadow-xs">
         <div className="flex items-center gap-3">
-          <button className="p-1 hover:bg-slate-100 rounded-lg text-blue-600 transition cursor-pointer">
+           <button title="Toggle menu" className="p-1 hover:bg-slate-100 rounded-lg text-blue-600 transition cursor-pointer">
             <Menu className="w-5 h-5" />
           </button>
           <h1 className="font-sans font-bold text-lg tracking-tight text-slate-900">

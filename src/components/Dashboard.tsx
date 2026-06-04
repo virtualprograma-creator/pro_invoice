@@ -5,8 +5,8 @@
 
 import React from "react";
 import { Invoice, InvoiceStatus, Customer, Contractor } from "../types";
-import { formatCurrency } from "../utils";
-import { FileText, Users, DollarSign, Clock, CheckCircle, PlusCircle } from "lucide-react";
+import { formatCurrency, formatDate } from "../utils";
+import { FileText, Users, PlusCircle, DollarSign, Clock, CheckCircle } from "lucide-react";
 
 interface DashboardProps {
   invoices: Invoice[];
@@ -30,7 +30,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
   // Calculations
   const totalInvoiced = invoices.reduce((sum, inv) => {
     const subtotal = inv.items.reduce((s, item) => s + (item.qty * item.price), 0);
-    const tax = subtotal * (inv.taxRate / 100);
+    const tax = inv.hideTax ? 0 : subtotal * (inv.taxRate / 100);
     return sum + subtotal + tax;
   }, 0);
 
@@ -38,7 +38,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
     .filter((inv) => inv.status === InvoiceStatus.PAID)
     .reduce((sum, inv) => {
       const subtotal = inv.items.reduce((s, item) => s + (item.qty * item.price), 0);
-      const tax = subtotal * (inv.taxRate / 100);
+      const tax = inv.hideTax ? 0 : subtotal * (inv.taxRate / 100);
       return sum + subtotal + tax;
     }, 0);
 
@@ -46,6 +46,39 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
   const countByStatus = (status: InvoiceStatus) =>
     invoices.filter((inv) => inv.status === status).length;
+
+  const totalInvoicesCount = invoices.length;
+  const paidCount = countByStatus(InvoiceStatus.PAID);
+  const sentCount = countByStatus(InvoiceStatus.SENT);
+  const draftCount = countByStatus(InvoiceStatus.DRAFT);
+  const overdueCount = countByStatus(InvoiceStatus.OVERDUE);
+
+  const radius = 36;
+  const circumference = 2 * Math.PI * radius;
+
+  const chartData = [
+    { label: "Paid", count: paidCount, color: "#10b981", bgClass: "bg-emerald-500", textClass: "text-emerald-600" },
+    { label: "Sent", count: sentCount, color: "#3b82f6", bgClass: "bg-blue-500", textClass: "text-blue-600" },
+    { label: "Draft", count: draftCount, color: "#94a3b8", bgClass: "bg-slate-400", textClass: "text-slate-500" },
+    { label: "Overdue", count: overdueCount, color: "#f43f5e", bgClass: "bg-rose-500", textClass: "text-rose-600" },
+  ];
+
+  const activeData = chartData.filter((d) => d.count > 0);
+  const isEmpty = totalInvoicesCount === 0;
+
+  let currentOffset = 0;
+  const segments = activeData.map((d) => {
+    const percentage = d.count / totalInvoicesCount;
+    const strokeLength = percentage * circumference;
+    const strokeOffset = circumference - strokeLength + currentOffset;
+    currentOffset -= strokeLength;
+    return {
+      ...d,
+      strokeLength,
+      strokeOffset,
+      percentage: Math.round(percentage * 100),
+    };
+  });
 
   return (
     <div className="space-y-6">
@@ -64,8 +97,9 @@ export const Dashboard: React.FC<DashboardProps> = ({
         <div className="absolute top-0 right-0 h-full w-1/3 border-l border-slate-700/20 transform skew-x-12 bg-slate-800/10" />
       </div>
 
-      {/* Primary Financial Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      {/* Primary Financial Stats */}
+      {/* Desktop Version: Three Beautiful Cards side-by-side */}
+      <div className="hidden md:grid md:grid-cols-3 gap-4">
         {/* Total Invoiced */}
         <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-xs flex items-center gap-4">
           <div className="p-3 bg-blue-50 text-blue-600 rounded-lg">
@@ -96,6 +130,26 @@ export const Dashboard: React.FC<DashboardProps> = ({
           <div>
             <span className="text-xs font-medium text-slate-500 uppercase tracking-wider block font-sans">Pending Balance</span>
             <span className="text-2xl font-bold text-amber-600">{formatCurrency(pending, currency)}</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Mobile Version: Single Line/Paragraph Layout */}
+      <div className="block md:hidden bg-white border border-slate-200 rounded-xl p-3 shadow-xs text-xs">
+        <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1.5 text-slate-600 font-medium">
+          <div className="flex items-center gap-1.5">
+            <DollarSign className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+            <span>Total: <span className="font-bold text-slate-900 font-mono">{formatCurrency(totalInvoiced, currency)}</span></span>
+          </div>
+          <span className="text-slate-300 hidden xs:inline">|</span>
+          <div className="flex items-center gap-1.5">
+            <CheckCircle className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+            <span>Collected: <span className="font-bold text-emerald-600 font-mono">{formatCurrency(collected, currency)}</span></span>
+          </div>
+          <span className="text-slate-300 hidden xs:inline">|</span>
+          <div className="flex items-center gap-1.5">
+            <Clock className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+            <span>Pending: <span className="font-bold text-amber-600 font-mono">{formatCurrency(pending, currency)}</span></span>
           </div>
         </div>
       </div>
@@ -139,50 +193,85 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
       {/* Invoice Status Distribution and Recent Activities split */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* Status Distribution Visualiser */}
-        <div className="lg:col-span-4 bg-white border border-slate-200 rounded-xl p-5 shadow-xs">
+        {/* Status Breakdown Visualiser (SVG Donut Chart) */}
+        <div className="lg:col-span-4 bg-white border border-slate-200 rounded-xl p-5 shadow-xs flex flex-col">
           <h3 className="text-sm font-semibold text-slate-800 uppercase tracking-wider mb-4 border-b border-slate-100 pb-2">
             Status Breakdown
           </h3>
-          <div className="space-y-4">
-            <div>
-              <div className="flex justify-between text-xs font-medium mb-1">
-                <span className="text-emerald-600 flex items-center gap-1">🟢 Paid</span>
-                <span className="text-slate-700">{countByStatus(InvoiceStatus.PAID)} ({((countByStatus(InvoiceStatus.PAID)/invoices.length)*100 || 0).toFixed(0)}%)</span>
-              </div>
-              <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
-                <div className="bg-emerald-500 h-2 rounded-full" style={{ width: `${(countByStatus(InvoiceStatus.PAID)/invoices.length)*100 || 0}%` }} />
-              </div>
+          
+          <div className="flex flex-col sm:flex-row lg:flex-col items-center justify-around gap-6 my-auto">
+            {/* SVG Donut Chart */}
+            <div className="relative w-32 h-32 flex items-center justify-center shrink-0">
+              <svg className="w-full h-full transform -rotate-90" viewBox="0 0 100 100">
+                {isEmpty ? (
+                  <circle
+                    cx="50"
+                    cy="50"
+                    r={radius}
+                    fill="transparent"
+                    stroke="#e2e8f0"
+                    strokeWidth="10"
+                  />
+                ) : (
+                  segments.map((seg, idx) => (
+                    <circle
+                      key={idx}
+                      cx="50"
+                      cy="50"
+                      r={radius}
+                      fill="transparent"
+                      stroke={seg.color}
+                      strokeWidth="10"
+                      strokeDasharray={`${seg.strokeLength} ${circumference - seg.strokeLength}`}
+                      strokeDashoffset={seg.strokeOffset}
+                      strokeLinecap="round"
+                      className="transition-all duration-300 hover:stroke-[12] cursor-pointer"
+                      style={{ transformOrigin: "50px 50px" }}
+                    />
+                  ))
+                )}
+                {/* Central Labels */}
+                <g className="transform rotate-90" style={{ transformOrigin: "50px 50px" }}>
+                  <text
+                    x="50"
+                    y="46"
+                    className="text-[14px] font-bold text-slate-900 font-sans"
+                    textAnchor="middle"
+                    dominantBaseline="middle"
+                  >
+                    {totalInvoicesCount}
+                  </text>
+                  <text
+                    x="50"
+                    y="58"
+                    className="text-[7px] font-bold text-slate-400 uppercase tracking-widest font-sans"
+                    textAnchor="middle"
+                    dominantBaseline="middle"
+                  >
+                    {totalInvoicesCount === 1 ? "Invoice" : "Invoices"}
+                  </text>
+                </g>
+              </svg>
             </div>
 
-            <div>
-              <div className="flex justify-between text-xs font-medium mb-1">
-                <span className="text-blue-600 flex items-center gap-1">🔵 Sent</span>
-                <span className="text-slate-700">{countByStatus(InvoiceStatus.SENT)} ({((countByStatus(InvoiceStatus.SENT)/invoices.length)*100 || 0).toFixed(0)}%)</span>
-              </div>
-              <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
-                <div className="bg-blue-500 h-2 rounded-full" style={{ width: `${(countByStatus(InvoiceStatus.SENT)/invoices.length)*100 || 0}%` }} />
-              </div>
-            </div>
-
-            <div>
-              <div className="flex justify-between text-xs font-medium mb-1">
-                <span className="text-slate-500 flex items-center gap-1">⚫ Draft</span>
-                <span className="text-slate-700">{countByStatus(InvoiceStatus.DRAFT)} ({((countByStatus(InvoiceStatus.DRAFT)/invoices.length)*100 || 0).toFixed(0)}%)</span>
-              </div>
-              <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
-                <div className="bg-slate-400 h-2 rounded-full" style={{ width: `${(countByStatus(InvoiceStatus.DRAFT)/invoices.length)*100 || 0}%` }} />
-              </div>
-            </div>
-
-            <div>
-              <div className="flex justify-between text-xs font-medium mb-1">
-                <span className="text-rose-600 flex items-center gap-1">🔴 Overdue</span>
-                <span className="text-slate-700">{countByStatus(InvoiceStatus.OVERDUE)} ({((countByStatus(InvoiceStatus.OVERDUE)/invoices.length)*100 || 0).toFixed(0)}%)</span>
-              </div>
-              <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
-                <div className="bg-rose-500 h-2 rounded-full" style={{ width: `${(countByStatus(InvoiceStatus.OVERDUE)/invoices.length)*100 || 0}%` }} />
-              </div>
+            {/* Custom Legend */}
+            <div className="w-full space-y-2">
+              {chartData.map((d, idx) => {
+                const count = d.count;
+                const percentage = totalInvoicesCount > 0 ? Math.round((count / totalInvoicesCount) * 100) : 0;
+                return (
+                  <div key={idx} className="flex items-center justify-between text-xs font-semibold hover:bg-slate-50 p-1.5 rounded-lg transition">
+                    <div className="flex items-center gap-2">
+                      <span className={`w-2.5 h-2.5 rounded-full ${d.bgClass}`} />
+                      <span className="text-slate-700">{d.label}</span>
+                    </div>
+                    <div className="text-right text-slate-500 font-mono">
+                      <span>{count}</span>
+                      <span className="text-[10px] text-slate-400 ml-1">({percentage}%)</span>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </div>
         </div>
@@ -209,7 +298,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
             ) : (
               invoices.map((inv) => {
                 const subtotal = inv.items.reduce((s, item) => s + (item.qty * item.price), 0);
-                const tax = subtotal * (inv.taxRate / 100);
+                const tax = inv.hideTax ? 0 : subtotal * (inv.taxRate / 100);
                 const total = subtotal + tax;
 
                 return (
@@ -245,7 +334,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
                     <div className="text-right">
                       <span className="text-sm font-bold text-slate-900 block font-mono">{formatCurrency(total, currency)}</span>
-                      <span className="text-[10px] text-slate-400 block">{inv.issuedDate}</span>
+                      <span className="text-[10px] text-slate-400 block">{formatDate(inv.issuedDate)}</span>
                     </div>
                   </div>
                 );

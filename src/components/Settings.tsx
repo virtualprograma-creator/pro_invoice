@@ -29,6 +29,24 @@ export const Settings: React.FC<SettingsProps> = ({
   const [currency, setCurrency] = useState(appSettings.currency);
   const [defaultTaxRate, setDefaultTaxRate] = useState(appSettings.defaultTaxRate);
   const [defaultTerms, setDefaultTerms] = useState(appSettings.defaultTerms);
+  const [logo, setLogo] = useState<string | null>(appSettings.logo);
+  const [hideTax, setHideTax] = useState(appSettings.hideTax ?? false);
+
+  const handleLogoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > 1024 * 1024) {
+      alert("El archivo es demasiado grande. El límite es de 1MB.");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      setLogo(event.target?.result as string);
+    };
+    reader.readAsDataURL(file);
+  };
 
   const [isContractorFormOpen, setIsContractorFormOpen] = useState(false);
   const [editingContractor, setEditingContractor] = useState<Contractor | null>(null);
@@ -100,6 +118,8 @@ export const Settings: React.FC<SettingsProps> = ({
       currency,
       defaultTaxRate: Number(defaultTaxRate),
       defaultTerms,
+      logo,
+      hideTax,
     });
     alert("System specifications saved successfully!");
   };
@@ -121,6 +141,7 @@ export const Settings: React.FC<SettingsProps> = ({
                   Active Currency
                 </label>
                 <select
+                  title="Active Currency"
                   className="w-full border border-slate-200 rounded-lg p-2.5 text-xs bg-slate-50 focus:outline-hidden"
                   value={currency}
                   onChange={(e) => setCurrency(e.target.value)}
@@ -137,6 +158,7 @@ export const Settings: React.FC<SettingsProps> = ({
                   Default Tax Rate (%)
                 </label>
                 <input
+                  title="Default Tax Rate"
                   type="number"
                   min="0"
                   max="100"
@@ -147,16 +169,56 @@ export const Settings: React.FC<SettingsProps> = ({
                 />
               </div>
 
+              <div className="flex items-center gap-2 py-1">
+                <input
+                  id="hideTaxDefault"
+                  type="checkbox"
+                  className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 border-slate-300"
+                  checked={hideTax}
+                  onChange={(e) => setHideTax(e.target.checked)}
+                />
+                <label htmlFor="hideTaxDefault" className="text-xs font-semibold text-slate-700 cursor-pointer select-none">
+                  Ocultar Tax por defecto
+                </label>
+              </div>
+
               <div>
                 <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest block mb-1">
                   Base Payment Terms
                 </label>
                 <input
+                  title="Base Payment Terms"
                   type="text"
                   className="w-full border border-slate-200 rounded-lg p-2.5 text-xs bg-slate-50 focus:outline-hidden"
                   value={defaultTerms}
                   onChange={(e) => setDefaultTerms(e.target.value)}
                 />
+              </div>
+
+              <div>
+                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest block mb-1">
+                  Business Logo
+                </label>
+                <input
+                  title="Business Logo File"
+                  type="file"
+                  accept="image/*"
+                  className="w-full text-xs text-slate-500 file:mr-4 file:py-1.5 file:px-3 file:rounded-lg file:border file:border-slate-200 file:text-xs file:font-semibold file:bg-slate-50 file:text-slate-700 hover:file:bg-slate-100 cursor-pointer"
+                  onChange={handleLogoChange}
+                />
+                {logo && (
+                  <div className="mt-2 relative inline-block group">
+                    <img src={logo} alt="Logo Preview" className="h-12 object-contain border border-slate-200 rounded-lg p-1 bg-white" />
+                    <button
+                      type="button"
+                      onClick={() => setLogo(null)}
+                      className="absolute -top-1.5 -right-1.5 bg-rose-500 hover:bg-rose-600 text-white rounded-full p-0.5 transition shadow-xs cursor-pointer"
+                      title="Quitar Logo"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                    </button>
+                  </div>
+                )}
               </div>
 
               <button

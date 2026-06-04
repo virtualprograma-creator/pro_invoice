@@ -5,13 +5,14 @@
 
 import React, { useRef, useEffect, useState } from "react";
 import { Invoice, InvoiceStatus } from "../types";
-import { formatCurrency } from "../utils";
+import { formatCurrency, formatDate } from "../utils";
 import { Send, Trash2, ArrowLeft, Check, Printer } from "lucide-react";
 import { jsPDF } from "jspdf";
 
 interface InvoiceDetailProps {
   invoice: Invoice;
   currency: string;
+  logo: string | null;
   onBack: () => void;
   onUpdateInvoice: (updated: Invoice) => void;
 }
@@ -19,12 +20,19 @@ interface InvoiceDetailProps {
 export const InvoiceDetail: React.FC<InvoiceDetailProps> = ({
   invoice,
   currency,
+  logo,
   onBack,
   onUpdateInvoice,
 }) => {
   const workerCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const customerCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const invoiceRef = useRef<HTMLElement | null>(null);
+
+  const invoiceRefForCallback = useRef(invoice);
+  invoiceRefForCallback.current = invoice;
+
+  const showWorker = !invoice.hideWorkerSignature;
+  const showCustomer = !invoice.hideCustomerSignature;
 
   const isSignatureCaptured = (signature: string | null) =>
     !!signature && signature !== "mock-signature-exists";
@@ -38,11 +46,11 @@ export const InvoiceDetail: React.FC<InvoiceDetailProps> = ({
   // Initialize and load saved signatures or clear canvases on load
   useEffect(() => {
     const cleanupWorkerCanvas = initCanvas(workerCanvasRef.current, invoice.workerSignature, (sig) => {
-      onUpdateInvoice({ ...invoice, workerSignature: sig });
+      onUpdateInvoice({ ...invoiceRefForCallback.current, workerSignature: sig });
       setWorkerSigned(isSignatureCaptured(sig));
     });
     const cleanupCustomerCanvas = initCanvas(customerCanvasRef.current, invoice.customerSignature, (sig) => {
-      onUpdateInvoice({ ...invoice, customerSignature: sig });
+      onUpdateInvoice({ ...invoiceRefForCallback.current, customerSignature: sig });
       setCustomerSigned(isSignatureCaptured(sig));
     });
 
@@ -85,6 +93,10 @@ export const InvoiceDetail: React.FC<InvoiceDetailProps> = ({
     }
 
     let drawing = false;
+    let p1X = 0;
+    let p1Y = 0;
+    let p2X = 0;
+    let p2Y = 0;
 
     const getPos = (e: MouseEvent | TouchEvent) => {
       const rect = canvas.getBoundingClientRect();
@@ -109,14 +121,30 @@ export const InvoiceDetail: React.FC<InvoiceDetailProps> = ({
       const pos = getPos(e);
       ctx.beginPath();
       ctx.moveTo(pos.x, pos.y);
+      p1X = pos.x;
+      p1Y = pos.y;
+      p2X = pos.x;
+      p2Y = pos.y;
       if (e.cancelable) e.preventDefault();
     };
 
     const move = (e: MouseEvent | TouchEvent) => {
       if (!drawing) return;
       const pos = getPos(e);
-      ctx.lineTo(pos.x, pos.y);
+      
+      const midX = (p2X + pos.x) / 2;
+      const midY = (p2Y + pos.y) / 2;
+      
+      ctx.beginPath();
+      ctx.moveTo(p1X, p1Y);
+      ctx.quadraticCurveTo(p2X, p2Y, midX, midY);
       ctx.stroke();
+      
+      p1X = midX;
+      p1Y = midY;
+      p2X = pos.x;
+      p2Y = pos.y;
+      
       if (e.cancelable) e.preventDefault();
     };
 
@@ -149,6 +177,7 @@ export const InvoiceDetail: React.FC<InvoiceDetailProps> = ({
   };
 
   const clearCanvas = (canvas: HTMLCanvasElement | null, type: "worker" | "customer") => {
+    const invoice = invoiceRefForCallback.current;
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
@@ -164,8 +193,9 @@ export const InvoiceDetail: React.FC<InvoiceDetailProps> = ({
   };
 
   const computeTotals = () => {
+    const invoice = invoiceRefForCallback.current;
     const subtotal = invoice.items.reduce((sum, item) => sum + (item.qty * item.price), 0);
-    const tax = subtotal * (invoice.taxRate / 100);
+    const tax = invoice.hideTax ? 0 : subtotal * (invoice.taxRate / 100);
     const total = subtotal + tax;
     return { subtotal, tax, total };
   };
@@ -173,6 +203,7 @@ export const InvoiceDetail: React.FC<InvoiceDetailProps> = ({
   const { subtotal, tax, total } = computeTotals();
 
   const handleDownloadPDF = async () => {
+    const invoice = invoiceRefForCallback.current;
     if (isGeneratingPdf) return false;
     setIsGeneratingPdf(true);
     setPdfError(null);
@@ -210,14 +241,31 @@ export const InvoiceDetail: React.FC<InvoiceDetailProps> = ({
 
       pdf.setFillColor(15, 23, 42);
       pdf.rect(0, 0, pageWidth, 34, "F");
-      pdf.setTextColor(255, 255, 255);
-      pdf.setFont("helvetica", "bold");
-      pdf.setFontSize(22);
-      pdf.text("INVOICE", margin, y);
+      
+      if (logo) {
+        try {
+          pdf.addImage(logo, "PNG", margin, 6, 22, 22);
+          pdf.setTextColor(255, 255, 255);
+          pdf.setFont("helvetica", "bold");
+          pdf.setFontSize(22);
+          pdf.text("INVOICE", margin + 26, y);
+        } catch (e) {
+          console.error("Error drawing logo on PDF:", e);
+          pdf.setTextColor(255, 255, 255);
+          pdf.setFont("helvetica", "bold");
+          pdf.setFontSize(22);
+          pdf.text("INVOICE", margin, y);
+        }
+      } else {
+        pdf.setTextColor(255, 255, 255);
+        pdf.setFont("helvetica", "bold");
+        pdf.setFontSize(22);
+        pdf.text("INVOICE", margin, y);
+      }
       pdf.setFontSize(10);
       pdf.text(`#${invoice.id}`, rightEdge, y, { align: "right" });
       pdf.setFont("helvetica", "normal");
-      pdf.text(`Issued: ${invoice.issuedDate}`, rightEdge, y + 6, { align: "right" });
+      pdf.text(`Issued: ${formatDate(invoice.issuedDate)}`, rightEdge, y + 6, { align: "right" });
       pdf.text(`Status: ${invoice.status}`, rightEdge, y + 12, { align: "right" });
 
       y = 46;
@@ -282,9 +330,11 @@ export const InvoiceDetail: React.FC<InvoiceDetailProps> = ({
       pdf.setTextColor(71, 85, 105);
       pdf.text("Subtotal", 145, y, { align: "right" });
       pdf.text(formatCurrency(subtotal, currency), rightEdge, y, { align: "right" });
-      y += 7;
-      pdf.text(`Tax (${invoice.taxRate}%)`, 145, y, { align: "right" });
-      pdf.text(formatCurrency(tax, currency), rightEdge, y, { align: "right" });
+      if (!invoice.hideTax && invoice.taxRate > 0) {
+        y += 7;
+        pdf.text(`Tax (${invoice.taxRate}%)`, 145, y, { align: "right" });
+        pdf.text(formatCurrency(tax, currency), rightEdge, y, { align: "right" });
+      }
       y += 9;
       pdf.setFont("helvetica", "bold");
       pdf.setFontSize(13);
@@ -309,30 +359,42 @@ export const InvoiceDetail: React.FC<InvoiceDetailProps> = ({
         y += 26;
       }
 
-      ensureSpace(42);
-      pdf.setFont("helvetica", "bold");
-      pdf.setFontSize(9);
-      pdf.setTextColor(71, 85, 105);
-      pdf.text("WORKER SIGNATURE", margin, y);
-      pdf.text("CUSTOMER SIGNATURE", 112, y);
-      y += 4;
+      const showWorker = !invoice.hideWorkerSignature;
+      const showCustomer = !invoice.hideCustomerSignature;
 
-      if (isSignatureCaptured(invoice.workerSignature)) {
-        pdf.addImage(invoice.workerSignature, "PNG", margin, y, 58, 20);
-      }
-      if (isSignatureCaptured(invoice.customerSignature)) {
-        pdf.addImage(invoice.customerSignature, "PNG", 112, y, 58, 20);
-      }
+      if (showWorker || showCustomer) {
+        ensureSpace(42);
+        pdf.setFont("helvetica", "bold");
+        pdf.setFontSize(9);
+        pdf.setTextColor(71, 85, 105);
+        if (showWorker) pdf.text("WORKER SIGNATURE", margin, y);
+        if (showCustomer) pdf.text("CUSTOMER SIGNATURE", 112, y);
+        y += 4;
 
-      y += 24;
-      pdf.setDrawColor(148, 163, 184);
-      pdf.line(margin, y, margin + 70, y);
-      pdf.line(112, y, 182, y);
-      pdf.setFont("helvetica", "normal");
-      pdf.setFontSize(8);
-      pdf.setTextColor(71, 85, 105);
-      pdf.text(invoice.contractor.name || "Worker", margin, y + 5);
-      pdf.text(invoice.customer.name || "Customer", 112, y + 5);
+        if (showWorker && isSignatureCaptured(invoice.workerSignature)) {
+          pdf.addImage(invoice.workerSignature, "PNG", margin, y, 58, 20);
+        }
+        if (showCustomer && isSignatureCaptured(invoice.customerSignature)) {
+          pdf.addImage(invoice.customerSignature, "PNG", 112, y, 58, 20);
+        }
+
+        y += 24;
+        pdf.setDrawColor(148, 163, 184);
+        if (showWorker) {
+          pdf.line(margin, y, margin + 70, y);
+          pdf.setFont("helvetica", "normal");
+          pdf.setFontSize(8);
+          pdf.setTextColor(71, 85, 105);
+          pdf.text(invoice.contractor.name || "Worker", margin, y + 5);
+        }
+        if (showCustomer) {
+          pdf.line(112, y, 182, y);
+          pdf.setFont("helvetica", "normal");
+          pdf.setFontSize(8);
+          pdf.setTextColor(71, 85, 105);
+          pdf.text(invoice.customer.name || "Customer", 112, y + 5);
+        }
+      }
 
       if (invoice.completedDate) {
         y += 18;
@@ -344,12 +406,12 @@ export const InvoiceDetail: React.FC<InvoiceDetailProps> = ({
         pdf.setFont("helvetica", "normal");
         pdf.setFontSize(10);
         pdf.setTextColor(15, 23, 42);
-        pdf.text(invoice.completedDate, margin, y + 6);
+        pdf.text(formatDate(invoice.completedDate), margin, y + 6);
       }
 
       pdf.setFontSize(7);
       pdf.setTextColor(148, 163, 184);
-      pdf.text(`Generated via Pro Invoice V2 - ${invoice.uuid.substring(0, 8).toUpperCase()}`, margin, pageHeight - 8);
+      pdf.text(`Generated via Pro Invoice V1.2`, margin, pageHeight - 8);
 
       pdf.save(`Invoice-#${invoice.id || invoice.uuid.substring(0, 8)}.pdf`);
       return true;
@@ -362,12 +424,18 @@ export const InvoiceDetail: React.FC<InvoiceDetailProps> = ({
     }
   };
 
-  const handleGenerateAndSend = async () => {
+  const handleSaveAndClose = () => {
+    const newStatus = workerSigned && customerSigned ? InvoiceStatus.PAID : InvoiceStatus.SENT;
+    onUpdateInvoice({ ...invoiceRefForCallback.current, status: newStatus });
+    onBack();
+  };
+
+  const handleSaveAndDownload = async () => {
     const downloaded = await handleDownloadPDF();
     if (!downloaded) return;
 
     const newStatus = workerSigned && customerSigned ? InvoiceStatus.PAID : InvoiceStatus.SENT;
-    onUpdateInvoice({ ...invoice, status: newStatus });
+    onUpdateInvoice({ ...invoiceRefForCallback.current, status: newStatus });
 
     setIsSuccessAlert(true);
     setTimeout(() => {
@@ -400,6 +468,59 @@ export const InvoiceDetail: React.FC<InvoiceDetailProps> = ({
             )}
             <span>{isGeneratingPdf ? "Generando..." : "Imprimir / PDF"}</span>
           </button>
+        </div>
+      </div>
+
+      {/* Signature & Tax Configuration Panel */}
+      <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-xs no-print flex flex-col gap-3">
+        <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest block border-b border-slate-100 pb-1.5">
+          Configuración de la Factura
+        </span>
+        <div className="flex flex-wrap gap-4 text-xs font-semibold text-slate-700">
+          <label className="flex items-center gap-2 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 border-slate-300"
+              checked={showWorker}
+              onChange={(e) => {
+                onUpdateInvoice({
+                  ...invoiceRefForCallback.current,
+                  hideWorkerSignature: !e.target.checked,
+                });
+              }}
+            />
+            <span>Mostrar Firma del Técnico (Worker)</span>
+          </label>
+
+          <label className="flex items-center gap-2 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 border-slate-300"
+              checked={showCustomer}
+              onChange={(e) => {
+                onUpdateInvoice({
+                  ...invoiceRefForCallback.current,
+                  hideCustomerSignature: !e.target.checked,
+                });
+              }}
+            />
+            <span>Mostrar Firma del Cliente (Customer)</span>
+          </label>
+
+          <label className="flex items-center gap-2 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 border-slate-300"
+              checked={!invoice.hideTax}
+              onChange={(e) => {
+                onUpdateInvoice({
+                  ...invoiceRefForCallback.current,
+                  hideTax: !e.target.checked,
+                });
+              }}
+            />
+            <span>Mostrar Impuestos (Tax)</span>
+          </label>
         </div>
       </div>
 
@@ -439,7 +560,7 @@ export const InvoiceDetail: React.FC<InvoiceDetailProps> = ({
               Invoice #{invoice.id}
             </h2>
             <p className="text-xs font-medium text-slate-500 mt-0.5 font-mono">
-              Issued: {invoice.issuedDate}
+              Issued: {formatDate(invoice.issuedDate)}
             </p>
           </div>
           <div className="bg-slate-950 px-3 py-1 rounded-full text-center">
@@ -454,6 +575,7 @@ export const InvoiceDetail: React.FC<InvoiceDetailProps> = ({
           <div className="bg-white rounded-xl shadow-xs border border-slate-200 p-6 max-h-[300px] overflow-y-auto aspect-[1.3] relative select-none">
             {/* watermark-like title */}
             <div className="text-center border-b border-slate-100 pb-2 mb-4">
+              {logo && <img src={logo} alt="Company Logo" className="h-8 mx-auto mb-2 object-contain" />}
               <h3 className="text-xs font-bold tracking-widest text-slate-400 font-mono">INVOICE PREVIEW</h3>
             </div>
             
@@ -493,7 +615,7 @@ export const InvoiceDetail: React.FC<InvoiceDetailProps> = ({
                     <td className="p-1 border border-slate-200 text-right">{formatCurrency(item.qty * item.price, currency)}</td>
                   </tr>
                 ))}
-                {invoice.taxRate > 0 && (
+                {!invoice.hideTax && invoice.taxRate > 0 && (
                   <tr className="font-medium text-slate-500 bg-slate-50/30">
                     <td colSpan={3} className="p-1 border border-slate-200 text-right">Tax ({invoice.taxRate}%)</td>
                     <td className="p-1 border border-slate-200 text-right">{formatCurrency(tax, currency)}</td>
@@ -506,20 +628,26 @@ export const InvoiceDetail: React.FC<InvoiceDetailProps> = ({
               </tbody>
             </table>
 
-            <div className="text-[9px] text-slate-400 mt-4 pt-2 border-t border-slate-100 flex justify-between">
-              <div>
-                <span className="block font-medium">Worker Signature</span>
-                <span className="italic block mt-1 font-mono text-[8px] text-slate-500">
-                  {workerSigned ? "✓ Electronically Captured" : "✗ Pending Signature"}
-                </span>
+            {(showWorker || showCustomer) && (
+              <div className="text-[9px] text-slate-400 mt-4 pt-2 border-t border-slate-100 flex justify-between">
+                {showWorker && (
+                  <div>
+                    <span className="block font-medium">Worker Signature</span>
+                    <span className="italic block mt-1 font-mono text-[8px] text-slate-500">
+                      {workerSigned ? "✓ Electronically Captured" : "✗ Pending Signature"}
+                    </span>
+                  </div>
+                )}
+                {showCustomer && (
+                  <div className="text-right">
+                    <span className="block font-medium">Customer Signature</span>
+                    <span className="italic block mt-1 font-mono text-[8px] text-slate-500">
+                      {customerSigned ? "✓ Electronically Captured" : "✗ Pending Signature"}
+                    </span>
+                  </div>
+                )}
               </div>
-              <div className="text-right">
-                <span className="block font-medium">Customer Signature</span>
-                <span className="italic block mt-1 font-mono text-[8px] text-slate-500">
-                  {customerSigned ? "✓ Electronically Captured" : "✗ Pending Signature"}
-                </span>
-              </div>
-            </div>
+            )}
             
             {/* Interactive Badge Indicator */}
             <div className="absolute top-2 right-2 bg-blue-600 text-white text-[8px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1 opacity-80 uppercase">
@@ -587,7 +715,7 @@ export const InvoiceDetail: React.FC<InvoiceDetailProps> = ({
           </div>
 
           {/* Tax row if applicable */}
-          {invoice.taxRate > 0 && (
+          {!invoice.hideTax && invoice.taxRate > 0 && (
             <div className="p-4 px-5 bg-slate-50 text-right flex justify-between border-t border-slate-100 text-sm">
               <span className="font-semibold text-slate-500">Tax Included ({invoice.taxRate}%)</span>
               <span className="font-bold text-slate-800 font-mono">{formatCurrency(tax, currency)}</span>
@@ -621,43 +749,49 @@ export const InvoiceDetail: React.FC<InvoiceDetailProps> = ({
           )}
 
           {/* Signatures & Execution row */}
-          <div className="grid grid-cols-2 gap-6 pt-2">
-            {/* Worker Signature Column */}
-            <div className="space-y-2 text-left">
-              <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider block">Worker Autograph</span>
-              <div className="h-20 border border-slate-200 border-dashed rounded-lg bg-slate-50/50 flex items-center justify-center relative overflow-hidden p-2">
-                {isSignatureCaptured(invoice.workerSignature) ? (
-                  <img src={invoice.workerSignature} alt="Worker Autograph" className="h-full object-contain max-h-16" />
-                ) : (
-                  <div className="text-slate-400 italic text-[11px] font-sans border-b border-slate-300 w-3/4 text-center pb-1">
-                    Awaiting Signature
+          {(showWorker || showCustomer) && (
+            <div className={`grid ${showWorker && showCustomer ? 'grid-cols-2' : 'grid-cols-1'} gap-6 pt-2`}>
+              {/* Worker Signature Column */}
+              {showWorker && (
+                <div className="space-y-2 text-left">
+                  <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider block">Worker Autograph</span>
+                  <div className="h-20 border border-slate-200 border-dashed rounded-lg bg-slate-50/50 flex items-center justify-center relative overflow-hidden p-2">
+                    {isSignatureCaptured(invoice.workerSignature) ? (
+                      <img src={invoice.workerSignature} alt="Worker Autograph" className="h-full object-contain max-h-16" />
+                    ) : (
+                      <div className="text-slate-400 italic text-[11px] font-sans border-b border-slate-300 w-3/4 text-center pb-1">
+                        Awaiting Signature
+                      </div>
+                    )}
                   </div>
-                )}
-              </div>
-              <div className="text-xs">
-                <p className="font-bold text-slate-800 leading-tight">{invoice.contractor.name}</p>
-                <p className="text-slate-400 text-[10px] uppercase tracking-wider">{invoice.contractor.company || 'Service Contractor'}</p>
-              </div>
-            </div>
+                  <div className="text-xs">
+                    <p className="font-bold text-slate-800 leading-tight">{invoice.contractor.name}</p>
+                    <p className="text-slate-400 text-[10px] uppercase tracking-wider">{invoice.contractor.company || 'Service Contractor'}</p>
+                  </div>
+                </div>
+              )}
 
-            {/* Customer Signature Column */}
-            <div className="space-y-2 text-left">
-              <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider block">Customer Acceptance</span>
-              <div className="h-20 border border-slate-200 border-dashed rounded-lg bg-slate-50/50 flex items-center justify-center relative overflow-hidden p-2">
-                {isSignatureCaptured(invoice.customerSignature) ? (
-                  <img src={invoice.customerSignature} alt="Customer Acceptance Signature" className="h-full object-contain max-h-16" />
-                ) : (
-                  <div className="text-slate-400 italic text-[11px] font-sans border-b border-slate-300 w-3/4 text-center pb-1">
-                    Awaiting Signature
+              {/* Customer Signature Column */}
+              {showCustomer && (
+                <div className="space-y-2 text-left">
+                  <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider block">Customer Acceptance</span>
+                  <div className="h-20 border border-slate-200 border-dashed rounded-lg bg-slate-50/50 flex items-center justify-center relative overflow-hidden p-2">
+                    {isSignatureCaptured(invoice.customerSignature) ? (
+                      <img src={invoice.customerSignature} alt="Customer Acceptance Signature" className="h-full object-contain max-h-16" />
+                    ) : (
+                      <div className="text-slate-400 italic text-[11px] font-sans border-b border-slate-300 w-3/4 text-center pb-1">
+                        Awaiting Signature
+                      </div>
+                    )}
                   </div>
-                )}
-              </div>
-              <div className="text-xs">
-                <p className="font-bold text-slate-800 leading-tight">{invoice.customer.name}</p>
-                <p className="text-slate-400 text-[10px] uppercase tracking-wider">{invoice.customer.company || 'Client Organization'}</p>
-              </div>
+                  <div className="text-xs">
+                    <p className="font-bold text-slate-800 leading-tight">{invoice.customer.name}</p>
+                    <p className="text-slate-400 text-[10px] uppercase tracking-wider">{invoice.customer.company || 'Client Organization'}</p>
+                  </div>
+                </div>
+              )}
             </div>
-          </div>
+          )}
 
           {invoice.completedDate && (
             <div className="pt-4 border-t border-slate-100 text-center">
@@ -665,14 +799,14 @@ export const InvoiceDetail: React.FC<InvoiceDetailProps> = ({
                 Date Completed
               </span>
               <span className="text-sm font-bold text-slate-900 font-mono mt-1 block">
-                {invoice.completedDate}
+                {formatDate(invoice.completedDate)}
               </span>
             </div>
           )}
 
           <div className="text-center pt-4 border-t border-slate-200 border-dashed flex flex-col sm:flex-row justify-between items-center gap-2">
             <span className="text-[9px] text-slate-400 font-mono uppercase tracking-widest leading-none">
-              Generated & Signed via Pro Invoice V2 Utility
+              Generated & Signed via Pro Invoice V1.2
             </span>
             <span className="text-[9px] text-slate-400 font-mono uppercase tracking-widest leading-none">
               License Reference: {invoice.uuid.substring(0, 8).toUpperCase()}
@@ -682,102 +816,119 @@ export const InvoiceDetail: React.FC<InvoiceDetailProps> = ({
       </section>
 
       {/* Signature Capture Section (Worker & Customer Canvas) */}
-      <section className="space-y-6 no-print">
-        {/* Worker Signature Canvas Block */}
-        <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs space-y-3">
-          <div className="flex justify-between items-center">
-            <label className="text-sm font-semibold text-slate-800 uppercase tracking-wider block">
-              Worker Signature
-            </label>
-            {workerSigned && (
-              <span className="text-xs bg-emerald-100 text-emerald-800 font-bold px-2 py-0.5 rounded-full uppercase tracking-wider">
-                Captured ✓
-              </span>
-            )}
-          </div>
-          
-          <div className="relative h-40 bg-white border border-slate-200 rounded-xl overflow-hidden shadow-inner group">
-            {/* Draw surface Canvas */}
-            <canvas
-              ref={workerCanvasRef}
-              className="w-full h-full signature-canvas"
-              title="Dibuja tu firma aquí"
-            />
-            {/* Mock overlay components to match image structure */}
-            <div className="signature-x select-none pointer-events-none absolute bottom-4 left-4 text-xl font-bold text-slate-300 font-mono">
-              X
-            </div>
-            <div className="absolute bottom-4 left-4 right-4 border-b border-dashed border-slate-200 pointer-events-none" />
-            <div className="absolute top-2 left-2 pointer-events-none text-[9px] text-slate-400 uppercase tracking-widest font-mono">
-              Touch / Drag inside grid to sign
-            </div>
-          </div>
+      {(showWorker || showCustomer) && (
+        <section className="space-y-6 no-print">
+          {showWorker && (
+            <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs space-y-3">
+              <div className="flex justify-between items-center">
+                <label className="text-sm font-semibold text-slate-800 uppercase tracking-wider block">
+                  Worker Signature
+                </label>
+                {workerSigned && (
+                  <span className="text-xs bg-emerald-100 text-emerald-800 font-bold px-2 py-0.5 rounded-full uppercase tracking-wider">
+                    Captured ✓
+                  </span>
+                )}
+              </div>
+              
+              <div className="relative h-40 bg-white border border-slate-200 rounded-xl overflow-hidden shadow-inner group">
+                {/* Draw surface Canvas */}
+                <canvas
+                  ref={workerCanvasRef}
+                  className="w-full h-full signature-canvas"
+                  title="Dibuja tu firma aquí"
+                />
+                {/* Mock overlay components to match image structure */}
+                <div className="signature-x select-none pointer-events-none absolute bottom-4 left-4 text-xl font-bold text-slate-300 font-mono">
+                  X
+                </div>
+                <div className="absolute bottom-4 left-4 right-4 border-b border-dashed border-slate-200 pointer-events-none" />
+                <div className="absolute top-2 left-2 pointer-events-none text-[9px] text-slate-400 uppercase tracking-widest font-mono">
+                  Touch / Drag inside grid to sign
+                </div>
+              </div>
 
-          <div className="flex justify-end">
-            <button
-              onClick={() => clearCanvas(workerCanvasRef.current, "worker")}
-              className="text-rose-600 hover:text-rose-800 font-bold text-xs py-2 flex items-center gap-1 border border-transparent hover:border-rose-100 hover:bg-rose-50 px-3 rounded-lg transition shrink-0 cursor-pointer"
-            >
-              <Trash2 className="w-3.5 h-3.5" /> Clear Signature
-            </button>
-          </div>
-        </div>
-
-        {/* Customer Signature Canvas Block */}
-        <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs space-y-3">
-          <div className="flex justify-between items-center">
-            <label className="text-sm font-semibold text-slate-800 uppercase tracking-wider block">
-              Customer Signature
-            </label>
-            {customerSigned && (
-              <span className="text-xs bg-emerald-100 text-emerald-800 font-bold px-2 py-0.5 rounded-full uppercase tracking-wider">
-                Captured ✓
-              </span>
-            )}
-          </div>
-
-          <div className="relative h-40 bg-white border border-slate-200 rounded-xl overflow-hidden shadow-inner group">
-            <canvas
-              ref={customerCanvasRef}
-              className="w-full h-full signature-canvas"
-              title="Dibuja tu firma aquí"
-            />
-            <div className="signature-x select-none pointer-events-none absolute bottom-4 left-4 text-xl font-bold text-slate-300 font-mono">
-              X
+              <div className="flex justify-end">
+                <button
+                  onClick={() => clearCanvas(workerCanvasRef.current, "worker")}
+                  className="text-rose-600 hover:text-rose-800 font-bold text-xs py-2 flex items-center gap-1 border border-transparent hover:border-rose-100 hover:bg-rose-50 px-3 rounded-lg transition shrink-0 cursor-pointer"
+                >
+                  <Trash2 className="w-3.5 h-3.5" /> Clear Signature
+                </button>
+              </div>
             </div>
-            <div className="absolute bottom-4 left-4 right-4 border-b border-dashed border-slate-200 pointer-events-none" />
-            <div className="absolute top-2 left-2 pointer-events-none text-[9px] text-slate-400 uppercase tracking-widest font-mono">
-              Touch / Drag inside grid to sign
-            </div>
-          </div>
+          )}
 
-          <div className="flex justify-end">
-            <button
-              onClick={() => clearCanvas(customerCanvasRef.current, "customer")}
-              className="text-rose-600 hover:text-rose-800 font-bold text-xs py-2 flex items-center gap-1 border border-transparent hover:border-rose-100 hover:bg-rose-50 px-3 rounded-lg transition shrink-0 cursor-pointer"
-            >
-              <Trash2 className="w-3.5 h-3.5" /> Clear Signature
-            </button>
-          </div>
-        </div>
-      </section>
+          {showCustomer && (
+            <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs space-y-3">
+              <div className="flex justify-between items-center">
+                <label className="text-sm font-semibold text-slate-800 uppercase tracking-wider block">
+                  Customer Signature
+                </label>
+                {customerSigned && (
+                  <span className="text-xs bg-emerald-100 text-emerald-800 font-bold px-2 py-0.5 rounded-full uppercase tracking-wider">
+                    Captured ✓
+                  </span>
+                )}
+              </div>
+
+              <div className="relative h-40 bg-white border border-slate-200 rounded-xl overflow-hidden shadow-inner group">
+                <canvas
+                  ref={customerCanvasRef}
+                  className="w-full h-full signature-canvas"
+                  title="Dibuja tu firma aquí"
+                />
+                <div className="signature-x select-none pointer-events-none absolute bottom-4 left-4 text-xl font-bold text-slate-300 font-mono">
+                  X
+                </div>
+                <div className="absolute bottom-4 left-4 right-4 border-b border-dashed border-slate-200 pointer-events-none" />
+                <div className="absolute top-2 left-2 pointer-events-none text-[9px] text-slate-400 uppercase tracking-widest font-mono">
+                  Touch / Drag inside grid to sign
+                </div>
+              </div>
+
+              <div className="flex justify-end">
+                <button
+                  onClick={() => clearCanvas(customerCanvasRef.current, "customer")}
+                  className="text-rose-600 hover:text-rose-800 font-bold text-xs py-2 flex items-center gap-1 border border-transparent hover:border-rose-100 hover:bg-rose-50 px-3 rounded-lg transition shrink-0 cursor-pointer"
+                >
+                  <Trash2 className="w-3.5 h-3.5" /> Clear Signature
+                </button>
+              </div>
+            </div>
+          )}
+        </section>
+      )}
 
       {/* Primary Action Dispatch block */}
-      <section className="pt-2 pb-6 no-print">
-        <button
-          onClick={handleGenerateAndSend}
-          disabled={isGeneratingPdf}
-          className="w-full bg-blue-600 hover:bg-blue-700 active:scale-[0.99] text-white py-4 rounded-xl font-bold text-md flex items-center justify-center gap-3 transition shadow-md hover:shadow-lg cursor-pointer disabled:opacity-60 disabled:cursor-wait"
-        >
-          {isGeneratingPdf ? (
-            <span className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin shrink-0" />
-          ) : (
-            <Send className="w-5 h-5 shrink-0" />
-          )}
-          <span>{isGeneratingPdf ? "Generating PDF..." : "Generate PDF and Download"}</span>
-        </button>
-        <p className="text-center text-slate-400 font-normal text-[11px] mt-4 leading-normal">
-          By clicking <code className="bg-slate-100 text-slate-700 px-1 py-0.5 rounded font-mono text-[10px]">"Generate PDF and Download"</code>, you confirm all details, payments, and captured signatures are legally binding and final.
+      <section className="pt-2 pb-6 no-print space-y-3">
+        <div className="flex flex-col sm:flex-row gap-3">
+          {/* Save & Close Button */}
+          <button
+            onClick={handleSaveAndClose}
+            className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 py-3 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition cursor-pointer"
+          >
+            <Check className="w-4 h-4 text-slate-600" />
+            <span>Guardar y Finalizar</span>
+          </button>
+
+          {/* Save & Download PDF Button */}
+          <button
+            onClick={handleSaveAndDownload}
+            disabled={isGeneratingPdf}
+            className="flex-2 bg-blue-600 hover:bg-blue-700 active:scale-[0.99] text-white py-3 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition shadow-sm hover:shadow-md cursor-pointer disabled:opacity-60 disabled:cursor-wait"
+          >
+            {isGeneratingPdf ? (
+              <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin shrink-0" />
+            ) : (
+              <Send className="w-4 h-4 shrink-0" />
+            )}
+            <span>{isGeneratingPdf ? "Generando PDF..." : "Descargar PDF Factura"}</span>
+          </button>
+        </div>
+
+        <p className="text-center text-slate-400 font-normal text-[10px] mt-2 leading-normal">
+          Al hacer clic en <code className="bg-slate-100 text-slate-700 px-1 py-0.5 rounded font-mono text-[9px]">"Guardar y Finalizar"</code> o <code className="bg-slate-100 text-slate-700 px-1 py-0.5 rounded font-mono text-[9px]">"Descargar PDF Factura"</code>, confirmas que todos los detalles y firmas capturadas son correctos.
         </p>
       </section>
     </div>

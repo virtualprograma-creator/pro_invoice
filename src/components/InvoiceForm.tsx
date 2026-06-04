@@ -34,6 +34,9 @@ export const InvoiceForm: React.FC<InvoiceFormProps> = ({
   const [taxRate, setTaxRate] = useState<number>(invoice ? invoice.taxRate : appSettings.defaultTaxRate);
   const [terms, setTerms] = useState(invoice ? invoice.terms : appSettings.defaultTerms);
   const [notes, setNotes] = useState(invoice ? invoice.notes : "");
+  const [hideTax, setHideTax] = useState<boolean>(
+    invoice ? (invoice.hideTax ?? false) : (appSettings.hideTax ?? false)
+  );
 
   // Selectable entities
   const [selectedContractorId, setSelectedContractorId] = useState<string>(
@@ -110,13 +113,16 @@ export const InvoiceForm: React.FC<InvoiceFormProps> = ({
       terms,
       notes,
       taxRate: Number(taxRate),
+      hideWorkerSignature: invoice ? invoice.hideWorkerSignature : undefined,
+      hideCustomerSignature: invoice ? invoice.hideCustomerSignature : undefined,
+      hideTax: hideTax,
     };
 
     onSave(savedInvoice);
   };
 
   const subtotal = items.reduce((sum, item) => sum + (item.qty * item.price), 0);
-  const taxAmount = subtotal * (taxRate / 100);
+  const taxAmount = hideTax ? 0 : subtotal * (taxRate / 100);
   const totalDue = subtotal + taxAmount;
 
   return (
@@ -252,6 +258,18 @@ export const InvoiceForm: React.FC<InvoiceFormProps> = ({
                 <p className="text-[10px] text-slate-400">Customers tab manages Clients.</p>
               </div>
             </div>
+
+            <div className="border-t border-slate-100 pt-3 mt-3">
+              <label className="flex items-center gap-2 cursor-pointer select-none text-xs font-semibold text-slate-700">
+                <input
+                  type="checkbox"
+                  className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 border-slate-300"
+                  checked={hideTax}
+                  onChange={(e) => setHideTax(e.target.checked)}
+                />
+                <span>Ocultar Impuestos (Tax) en esta factura</span>
+              </label>
+            </div>
           </div>
 
           {/* Line Items Builder Section */}
@@ -362,22 +380,24 @@ export const InvoiceForm: React.FC<InvoiceFormProps> = ({
               </div>
 
               {/* Tax Rate setting inline */}
-              <div className="pt-2 flex items-center justify-between">
-                <label className="text-slate-400 flex items-center gap-1">
-                  Tax Rate (%)
-                </label>
-                <input
-                  type="number"
-                  min="0"
-                  max="100"
-                  step="any"
-                  className="w-16 border border-slate-700 bg-slate-800 text-white rounded-md p-1 pl-2 text-xs text-right font-mono"
-                  value={taxRate}
-                  onChange={(e) => setTaxRate(Number(e.target.value))}
-                />
-              </div>
+              {!hideTax && (
+                <div className="pt-2 flex items-center justify-between">
+                  <label className="text-slate-400 flex items-center gap-1">
+                    Tax Rate (%)
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    max="100"
+                    step="any"
+                    className="w-16 border border-slate-700 bg-slate-800 text-white rounded-md p-1 pl-2 text-xs text-right font-mono"
+                    value={taxRate}
+                    onChange={(e) => setTaxRate(Number(e.target.value))}
+                  />
+                </div>
+              )}
 
-              {taxRate > 0 && (
+              {!hideTax && taxRate > 0 && (
                 <div className="flex justify-between">
                   <span className="text-slate-400">Computed Tax ({taxRate}%)</span>
                   <span className="font-mono text-slate-300">+{formatCurrency(taxAmount, appSettings.currency)}</span>

@@ -55,10 +55,15 @@ export interface Invoice {
   terms: string;
   notes: string;
   taxRate: number; // percentage
+  hideWorkerSignature?: boolean;
+  hideCustomerSignature?: boolean;
+  hideTax?: boolean;
 }
 
 export interface AppSettings {
   currency: string;
   defaultTaxRate: number;
   defaultTerms: string;
+  logo: string | null;
+  hideTax: boolean;
 }
